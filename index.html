@@ -28,6 +28,9 @@
                         <span class="logo-sub">Digital Checklist</span>
                     </div>
                 </div>
+                <button class="sidebar-collapse" id="sidebarCollapseBtn" title="Collapse Sidebar">
+                    <i class="fas fa-chevron-left"></i>
+                </button>
                 <button class="sidebar-close" id="sidebarClose">
                     <i class="fas fa-times"></i>
                 </button>
@@ -51,7 +54,7 @@
                                 <span class="stat-label">Courses</span>
                             </div>
                         </div>
-                        <div class="stat-card">
+                        <div class="stat-card" id="studentsStatCard" title="Click to toggle filtered/total count">
                             <div class="stat-icon"><i class="fas fa-users"></i></div>
                             <div class="stat-info">
                                 <span class="stat-number" id="totalStudents">0</span>
@@ -82,6 +85,22 @@
                 </div>
 
                 <div class="nav-section">
+                    <h3>Signature Date Filter</h3>
+                    <div class="select-box">
+                        <i class="fas fa-calendar-day"></i>
+                        <select id="signatureDateSelect">
+                            <option value="">All Dates</option>
+                        </select>
+                    </div>
+                    <div class="select-box">
+                        <i class="fas fa-calendar-alt"></i>
+                        <select id="signatureMonthSelect">
+                            <option value="">All Months</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="nav-section">
                     <h3>Quick Filters</h3>
                     <button class="filter-btn active" data-filter="all">
                         <i class="fas fa-list"></i> All Students
@@ -93,6 +112,8 @@
                         <i class="fas fa-exclamation-triangle"></i> Has Pending
                     </button>
                 </div>
+
+                
 
                 <div class="nav-section">
                     <h3>Search & Tools</h3>
@@ -162,6 +183,9 @@
                 <div class="top-bar-left">
                     <button class="menu-toggle" id="menuToggle">
                         <i class="fas fa-bars"></i>
+                    </button>
+                    <button class="sidebar-toggle" id="sidebarToggle" title="Toggle Sidebar">
+                        <i class="fas fa-columns"></i>
                     </button>
                     <div class="top-title">
                         <h1>Checklist of Requirements for Clearance Signing</h1>
