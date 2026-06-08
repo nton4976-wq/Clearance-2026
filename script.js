@@ -14,7 +14,7 @@
 // OPTION 2: Hardcode below (replace the empty string):
 //
 const CONFIG = {
-    GAS_ENDPOINT: localStorage.getItem('gasEndpoint') || 'https://script.google.com/macros/s/AKfycbws7eZIVHTbaYI9AaRjs43F9xweM5vuWdBn3OJtkqAKhVqv2VdGUiJ3KQ42A5JuXdOjPg/exec',
+    GAS_ENDPOINT: localStorage.getItem('gasEndpoint') || 'https://script.google.com/macros/s/AKfycbxfNhxHe-I-pgOLPXvJ9mCIrOnBVx93mP17EHV1yK7mn0Mfe9NccyJudP-qkWaZDXRVMQ/exec',
     SHEET_ID: localStorage.getItem('sheetId') || '',
     DATA_SHEET_NAME: 'Students',
     CHECKLIST_SHEET_NAME: 'Checklist',
@@ -213,15 +213,126 @@ let selectedCourse = '';
 let sidebarCollapsed = false;
 let uploadedExcelData = null;
 
+// --- NEW STATE VARIABLES ---
+let selectedSignatureDate = '';
+let selectedSignatureMonth = '';
+let studentsCardMode = 'total'; // 'total' or 'filtered'
+let duplicatePayments = new Set();
+
 const ROWS_PER_PAGE = 30;
 let currentPage = {};
 
 // ============================================
 // API HELPERS - Google Apps Script Communication
 // ============================================
+/*
+GOOGLE APPS SCRIPT (code.gs) - Paste this into your GAS project:
+
+function doGet(e) {
+  return ContentService.createTextOutput(JSON.stringify({
+    success: true,
+    message: 'Clearance Checklist API is running'
+  })).setMimeType(ContentService.MimeType.JSON);
+}
+
+function doPost(e) {
+  // Handle CORS preflight
+  if (e.parameter && e.parameter.method === "OPTIONS") {
+    return ContentService.createTextOutput("")
+      .setMimeType(ContentService.MimeType.TEXT)
+      .setHeaders({
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type"
+      });
+  }
+
+  var data;
+  try {
+    if (e.postData && e.postData.contents) {
+      data = JSON.parse(e.postData.contents);
+    } else if (e.parameter && e.parameter.data) {
+      data = JSON.parse(e.parameter.data);
+    } else {
+      data = e.parameter || {};
+    }
+  } catch (err) {
+    data = e.parameter || {};
+  }
+
+  var action = data.action || "";
+  var sheet = SpreadsheetApp.getActiveSpreadsheet();
+
+  if (action === "getStudents") {
+    var studentsSheet = sheet.getSheetByName("Students");
+    if (!studentsSheet) {
+      return jsonResponse({ success: false, message: "Students sheet not found" });
+    }
+    var data_range = studentsSheet.getDataRange();
+    var values = data_range.getValues();
+    var headers = values[0];
+    var students = [];
+    for (var i = 1; i < values.length; i++) {
+      var row = {};
+      for (var j = 0; j < headers.length; j++) {
+        row[headers[j]] = values[i][j];
+      }
+      students.push(row);
+    }
+    return jsonResponse({ success: true, data: students });
+  }
+
+  if (action === "saveChecklist") {
+    var checklistSheet = sheet.getSheetByName("Checklist");
+    if (!checklistSheet) {
+      checklistSheet = sheet.insertSheet("Checklist");
+      checklistSheet.appendRow(["StudentID", "Data", "Timestamp"]);
+    }
+    var checklistData = data.checklistData || {};
+    // Clear existing data (except header)
+    if (checklistSheet.getLastRow() > 1) {
+      checklistSheet.getRange(2, 1, checklistSheet.getLastRow() - 1, 3).clear();
+    }
+    var rows = [];
+    for (var key in checklistData) {
+      rows.push([key, JSON.stringify(checklistData[key]), new Date()]);
+    }
+    if (rows.length > 0) {
+      checklistSheet.getRange(2, 1, rows.length, 3).setValues(rows);
+    }
+    return jsonResponse({ success: true, message: "Checklist saved" });
+  }
+
+  if (action === "uploadStudents") {
+    var studentsSheet = sheet.getSheetByName("Students");
+    if (!studentsSheet) {
+      studentsSheet = sheet.insertSheet("Students");
+      studentsSheet.appendRow(["NO", "Campus", "Program", "Last Name", "First Name", "Middle Name", "FULL NAME"]);
+    }
+    var students = data.students || [];
+    var rows = students.map(function(s) {
+      return [s.no, s.campus, s.program, s.lastName, s.firstName, s.middleName, s.fullName];
+    });
+    if (rows.length > 0) {
+      studentsSheet.getRange(studentsSheet.getLastRow() + 1, 1, rows.length, 7).setValues(rows);
+    }
+    return jsonResponse({ success: true, message: rows.length + " students uploaded" });
+  }
+
+  return jsonResponse({ success: false, message: "Unknown action: " + action });
+}
+
+function jsonResponse(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON)
+    .setHeaders({ "Access-Control-Allow-Origin": "*" });
+}
+*/
+
 async function apiCall(action, payload = {}) {
-    if (!CONFIG.GAS_ENDPOINT) {
-        throw new Error('Google Apps Script endpoint not configured. Please set it in localStorage as "gasEndpoint"');
+    if (!CONFIG.GAS_ENDPOINT || CONFIG.GAS_ENDPOINT === 'https://script.google.com/macros/s/AKfycbws7eZIVHTbaYI9AaRjs43F9xweM5vuWdBn3OJtkqAKhVqv2VdGUiJ3KQ42A5JuXdOjPg/exec') {
+        console.warn('GAS_ENDPOINT not configured. Skipping API call.');
+        return { success: false, message: 'GAS endpoint not configured. Set it via: localStorage.setItem("gasEndpoint", "YOUR_URL")' };
     }
 
     const data = {
@@ -230,15 +341,12 @@ async function apiCall(action, payload = {}) {
         timestamp: new Date().toISOString()
     };
 
-    // Use URL-encoded form data for better CORS compatibility with Google Apps Script
-    const formData = new URLSearchParams();
-    formData.append('action', action);
-    formData.append('data', JSON.stringify(data));
-
+    // CRITICAL: Use text/plain to avoid CORS preflight
+    // Google Apps Script handles this as a "simple request"
     try {
-        // Method 1: Try with fetch and JSON body (works with proper CORS)
         const response = await fetch(CONFIG.GAS_ENDPOINT, {
             method: 'POST',
+            redirect: 'follow',
             body: JSON.stringify(data),
             headers: {
                 'Content-Type': 'text/plain;charset=utf-8'
@@ -246,41 +354,204 @@ async function apiCall(action, payload = {}) {
         });
 
         if (!response.ok) {
-            throw new Error('Network response was not ok: ' + response.status);
+            throw new Error('HTTP ' + response.status);
         }
 
         const result = await response.json();
         return result;
+
     } catch (error) {
-        // Method 2: Fallback to URL-encoded form data
-        try {
-            const response = await fetch(CONFIG.GAS_ENDPOINT, {
-                method: 'POST',
-                body: formData,
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded'
-                }
-            });
-
-            if (!response.ok) {
-                throw new Error('Network response was not ok: ' + response.status);
-            }
-
-            const result = await response.json();
-            return result;
-        } catch (error2) {
-            console.error('API call failed:', error2);
-            throw new Error('Failed to connect to Google Apps Script. CORS may be blocked. Error: ' + error2.message);
-        }
+        console.error('API call failed:', error);
+        // Fallback: save locally and show warning
+        return { success: false, message: 'Server unreachable. Data saved locally only.' };
     }
 }
 
-function positionUploadBoxAtBottom() {
+
+
+// ============================================
+// NEW HELPER FUNCTIONS
+// ============================================
+
+/* --- Signature Filter Helpers --- */
+function getSignatureDates() {
+    const dates = new Set();
+    Object.values(checklistData).forEach(data => {
+        if (data.signature && data.signature.trim()) {
+            dates.add(data.signature.trim());
+        }
+    });
+    return Array.from(dates).sort((a, b) => {
+        const parse = (str) => { const [m, d, y] = str.split('/').map(Number); return new Date(y, m - 1, d); };
+        return parse(a) - parse(b);
+    });
+}
+
+function getSignatureMonths() {
+    const months = new Set();
+    Object.values(checklistData).forEach(data => {
+        if (data.signature && data.signature.trim()) {
+            const parts = data.signature.split('/');
+            if (parts.length === 3) months.add(`${parts[0]}/${parts[2]}`);
+        }
+    });
+    return Array.from(months).sort((a, b) => {
+        const [ma, ya] = a.split('/').map(Number);
+        const [mb, yb] = b.split('/').map(Number);
+        if (ya !== yb) return ya - yb;
+        return ma - mb;
+    });
+}
+
+function populateSignatureFilters() {
+    const dateSelect = document.getElementById('signatureDateSelect');
+    const monthSelect = document.getElementById('signatureMonthSelect');
+    if (!dateSelect || !monthSelect) return;
+
+    const currentDate = dateSelect.value;
+    const currentMonth = monthSelect.value;
+
+    dateSelect.innerHTML = '<option value="">All Dates</option>';
+    monthSelect.innerHTML = '<option value="">All Months</option>';
+
+    getSignatureDates().forEach(date => {
+        const opt = document.createElement('option');
+        opt.value = date;
+        opt.textContent = date;
+        dateSelect.appendChild(opt);
+    });
+
+    getSignatureMonths().forEach(month => {
+        const opt = document.createElement('option');
+        opt.value = month;
+        opt.textContent = month;
+        monthSelect.appendChild(opt);
+    });
+
+    if (currentDate && Array.from(dateSelect.options).some(o => o.value === currentDate)) dateSelect.value = currentDate;
+    if (currentMonth && Array.from(monthSelect.options).some(o => o.value === currentMonth)) monthSelect.value = currentMonth;
+}
+
+/* --- Duplicate Payment Checker --- */
+function updateDuplicatePayments() {
+    const counts = {};
+    Object.values(checklistData).forEach(data => {
+        const val = data.payment;
+        if (val && String(val).length === 6 && /^\d{6}$/.test(String(val))) {
+            counts[val] = (counts[val] || 0) + 1;
+        }
+    });
+    duplicatePayments = new Set(Object.keys(counts).filter(k => counts[k] > 1));
+}
+
+function highlightDuplicatePayments() {
+    document.querySelectorAll('.payment-input').forEach(input => {
+        const val = input.value;
+        if (val && duplicatePayments.has(val)) input.classList.add('duplicate');
+        else input.classList.remove('duplicate');
+    });
+}
+
+/* --- Sidebar Collapse / Toggle --- */
+function setSidebarCollapsed(collapsed) {
+    sidebarCollapsed = collapsed;
     const sidebar = document.getElementById('sidebar');
-    const uploadBox = document.getElementById('uploadBox');
-    if (sidebar && uploadBox) {
-        sidebar.appendChild(uploadBox);
+    const mainContent = document.querySelector('.main-content');
+    const collapseBtn = document.getElementById('sidebarCollapseBtn');
+    const toggleBtn = document.getElementById('sidebarToggle');
+
+    if (sidebar) sidebar.classList.toggle('collapsed', collapsed);
+    if (mainContent) mainContent.classList.toggle('sidebar-collapsed', collapsed);
+
+    // Update collapse button icon in sidebar header
+    if (collapseBtn) {
+        const icon = collapseBtn.querySelector('i');
+        if (collapsed) { 
+            if (icon) icon.className = 'fas fa-chevron-right'; 
+            collapseBtn.title = 'Expand Sidebar'; 
+        } else { 
+            if (icon) icon.className = 'fas fa-chevron-left'; 
+            collapseBtn.title = 'Collapse Sidebar'; 
+        }
     }
+
+    // Update toggle button in top bar
+    if (toggleBtn) {
+        const icon = toggleBtn.querySelector('i');
+        if (collapsed) {
+            if (icon) icon.className = 'fas fa-columns';
+            toggleBtn.title = 'Show Sidebar';
+            toggleBtn.style.background = 'var(--primary-light)';
+            toggleBtn.style.borderColor = 'var(--primary)';
+            toggleBtn.style.color = 'var(--primary)';
+        } else {
+            if (icon) icon.className = 'fas fa-columns';
+            toggleBtn.title = 'Hide Sidebar';
+            toggleBtn.style.background = '';
+            toggleBtn.style.borderColor = '';
+            toggleBtn.style.color = '';
+        }
+    }
+
+    // Save preference
+    localStorage.setItem('sidebarCollapsed', collapsed ? 'true' : 'false');
+}
+
+function setupSidebarCollapse() {
+    // Sidebar header collapse button (desktop)
+    const collapseBtn = document.getElementById('sidebarCollapseBtn');
+    if (collapseBtn) {
+        collapseBtn.addEventListener('click', () => setSidebarCollapsed(!sidebarCollapsed));
+    }
+
+    // Top bar toggle button (desktop alternative)
+    const toggleBtn = document.getElementById('sidebarToggle');
+    if (toggleBtn) {
+        toggleBtn.addEventListener('click', () => setSidebarCollapsed(!sidebarCollapsed));
+    }
+
+    // Restore saved preference
+    const saved = localStorage.getItem('sidebarCollapsed');
+    if (saved === 'true') {
+        setSidebarCollapsed(true);
+    }
+}
+
+/* --- Interactive Students Card --- */
+function setupStudentsCard() {
+    const card = document.getElementById('studentsStatCard');
+    if (!card) return;
+    card.addEventListener('click', () => {
+        studentsCardMode = studentsCardMode === 'total' ? 'filtered' : 'total';
+        updateStats();
+    });
+}
+
+/* --- Signature Filter Events --- */
+function setupSignatureFilters() {
+    const dateSelect = document.getElementById('signatureDateSelect');
+    const monthSelect = document.getElementById('signatureMonthSelect');
+    if (!dateSelect || !monthSelect) return;
+
+    // Remove old listeners if any (by cloning)
+    const newDateSelect = dateSelect.cloneNode(true);
+    const newMonthSelect = monthSelect.cloneNode(true);
+    dateSelect.parentNode.replaceChild(newDateSelect, dateSelect);
+    monthSelect.parentNode.replaceChild(newMonthSelect, monthSelect);
+
+    newDateSelect.addEventListener('change', (e) => {
+        selectedSignatureDate = e.target.value;
+        currentPage = {};
+        renderDocuments();
+        updateStats();
+    });
+
+    newMonthSelect.addEventListener('change', (e) => {
+        selectedSignatureMonth = e.target.value;
+        currentPage = {};
+        renderDocuments();
+        updateStats();
+    });
 }
 
 // ============================================
@@ -332,6 +603,9 @@ async function loadDataFromSheets() {
         console.error('Failed to load from sheets:', error);
         showToast('Failed to load from server: ' + error.message, 'warning');
     } finally {
+        // --- NEW: Populate signature filters & check duplicates after load ---
+        populateSignatureFilters();
+        updateDuplicatePayments();
         hideLoading();
     }
 }
@@ -521,12 +795,14 @@ function handleDateInput(studentId, value) {
                 checklistData[studentId][col.key] = true;
             }
         });
+        populateSignatureFilters();
     } else if (value === '') {
         columns.forEach(col => {
             if (col.type === 'checkbox') {
                 delete checklistData[studentId][col.key];
             }
         });
+        populateSignatureFilters();
     }
 
     saveDataLocal();
@@ -555,6 +831,8 @@ function handlePaymentInput(studentId, value) {
     if (!checklistData[studentId]) checklistData[studentId] = {};
     checklistData[studentId]['payment'] = value;
     saveDataLocal();
+    updateDuplicatePayments();
+    highlightDuplicatePayments();
 }
 
 // ============================================
@@ -595,6 +873,19 @@ function getVisibleStudents() {
                 const studentData = checklistData[s.id] || {};
                 const checkedCount = Object.values(studentData).filter(v => v === true).length;
                 const totalCols = columns.filter(c => c.type === 'checkbox').length;
+
+                // --- NEW: Signature date filter ---
+                let matchesSignature = true;
+                if (selectedSignatureDate) {
+                    matchesSignature = studentData.signature === selectedSignatureDate;
+                }
+                if (selectedSignatureMonth && matchesSignature) {
+                    const sig = studentData.signature || '';
+                    const parts = sig.split('/');
+                    const sigMonth = parts.length === 3 ? `${parts[0]}/${parts[2]}` : '';
+                    matchesSignature = sigMonth === selectedSignatureMonth;
+                }
+                if (!matchesSignature) return false;
 
                 if (currentFilter === 'complete') {
                     return matchesSearch && checkedCount === totalCols;
@@ -654,6 +945,19 @@ function renderDocuments() {
                 const studentData = checklistData[s.id] || {};
                 const checkedCount = Object.values(studentData).filter(v => v === true).length;
                 const totalCols = columns.filter(c => c.type === 'checkbox').length;
+
+                // --- NEW: Signature date filter ---
+                let matchesSignature = true;
+                if (selectedSignatureDate) {
+                    matchesSignature = studentData.signature === selectedSignatureDate;
+                }
+                if (selectedSignatureMonth && matchesSignature) {
+                    const sig = studentData.signature || '';
+                    const parts = sig.split('/');
+                    const sigMonth = parts.length === 3 ? `${parts[0]}/${parts[2]}` : '';
+                    matchesSignature = sigMonth === selectedSignatureMonth;
+                }
+                if (!matchesSignature) return false;
 
                 if (currentFilter === 'complete') {
                     return matchesSearch && checkedCount === totalCols;
@@ -807,6 +1111,10 @@ function renderDocuments() {
                             e.target.value = formatted;
                             handlePaymentInput(student.id, formatted);
                         });
+                        // --- NEW: Highlight duplicate payments on render ---
+                        if (duplicatePayments.has(paymentValue)) {
+                            input.classList.add('duplicate');
+                        }
                     } else {
                         td.className = 'check-cell' + (isChecked(student.id, col.key) ? ' checked' : '');
                         td.dataset.studentId = student.id;
@@ -883,6 +1191,8 @@ function renderDocuments() {
         });
     });
 
+    // --- NEW: Re-apply duplicate highlights after render ---
+    highlightDuplicatePayments();
     updateStats();
 }
 
@@ -920,7 +1230,27 @@ function updateStats() {
 
     document.getElementById('totalColleges').textContent = totalColleges;
     document.getElementById('totalCourses').textContent = totalCourses;
-    document.getElementById('totalStudents').textContent = totalStudents;
+
+    // --- NEW: Interactive students card ---
+    const studentsNum = document.getElementById('totalStudents');
+    const studentsLabel = studentsNum ? studentsNum.nextElementSibling : null;
+    const studentsCard = document.getElementById('studentsStatCard');
+
+    if (studentsCardMode === 'filtered' && studentsNum) {
+        studentsNum.textContent = visibleStudents.length;
+        if (studentsLabel) studentsLabel.textContent = 'Showing';
+        if (studentsCard) {
+            studentsCard.classList.add('showing-filtered');
+            studentsCard.classList.remove('showing-total');
+        }
+    } else if (studentsNum) {
+        studentsNum.textContent = totalStudents;
+        if (studentsLabel) studentsLabel.textContent = 'Students';
+        if (studentsCard) {
+            studentsCard.classList.add('showing-total');
+            studentsCard.classList.remove('showing-filtered');
+        }
+    }
 
     const percent = maxChecks > 0 ? Math.round((totalChecks / maxChecks) * 100) : 0;
     document.getElementById('progressPercent').textContent = percent + '%';
@@ -928,69 +1258,149 @@ function updateStats() {
 }
 
 // ============================================
-// DROPDOWN POPULATION
+// CASCADING DROPDOWN POPULATION
 // ============================================
+
+// Get all students that match current college + course filters (for cascading)
+function getFilteredStudentsBase() {
+    let collegesToShow = Object.entries(collegesData);
+    if (selectedCollege) {
+        collegesToShow = collegesToShow.filter(([college]) => college === selectedCollege);
+    }
+
+    const baseStudents = [];
+    collegesToShow.forEach(([college, courses]) => {
+        let coursesToShow = Object.entries(courses);
+        if (selectedCourse) {
+            coursesToShow = coursesToShow.filter(([course]) => course === selectedCourse);
+        }
+        coursesToShow.forEach(([course, names]) => {
+            const courseStudents = allStudents.filter(s => s.college === college && s.course === course);
+            baseStudents.push(...courseStudents);
+        });
+    });
+    return baseStudents;
+}
+
+// Get signature dates only from currently filtered students
+function getSignatureDates() {
+    const baseStudents = getFilteredStudentsBase();
+    const dates = new Set();
+    baseStudents.forEach(student => {
+        const data = checklistData[student.id];
+        if (data && data.signature && data.signature.trim()) {
+            dates.add(data.signature.trim());
+        }
+    });
+    return Array.from(dates).sort((a, b) => {
+        const parse = (str) => { const [m, d, y] = str.split('/').map(Number); return new Date(y, m - 1, d); };
+        return parse(a) - parse(b);
+    });
+}
+
+// Get signature months only from currently filtered students
+function getSignatureMonths() {
+    const baseStudents = getFilteredStudentsBase();
+    const months = new Set();
+    baseStudents.forEach(student => {
+        const data = checklistData[student.id];
+        if (data && data.signature && data.signature.trim()) {
+            const parts = data.signature.split('/');
+            if (parts.length === 3) months.add(`${parts[0]}/${parts[2]}`);
+        }
+    });
+    return Array.from(months).sort((a, b) => {
+        const [ma, ya] = a.split('/').map(Number);
+        const [mb, yb] = b.split('/').map(Number);
+        if (ya !== yb) return ya - yb;
+        return ma - mb;
+    });
+}
+
 function populateDropdowns() {
     const collegeSelect = document.getElementById('collegeSelect');
     const courseSelect = document.getElementById('courseSelect');
 
-    collegeSelect.innerHTML = '<option value="">All Colleges</option>';
-    courseSelect.innerHTML = '<option value="">All Courses</option>';
+    // Save current selections before rebuilding
+    const prevCollege = selectedCollege;
+    const prevCourse = selectedCourse;
 
-    Object.keys(collegesData).forEach(college => {
+    // Populate colleges
+    collegeSelect.innerHTML = '<option value="">All Colleges</option>';
+    Object.keys(collegesData).sort().forEach(college => {
         const option = document.createElement('option');
         option.value = college;
         option.textContent = college;
         collegeSelect.appendChild(option);
     });
 
-    // If a college is already selected (default), show it and load its courses
+    // Restore college selection
+    if (prevCollege && collegesData[prevCollege]) {
+        collegeSelect.value = prevCollege;
+        selectedCollege = prevCollege;
+    }
+
+    // Populate courses based on SELECTED college (cascading)
+    courseSelect.innerHTML = '<option value="">All Courses</option>';
     if (selectedCollege && collegesData[selectedCollege]) {
-        collegeSelect.value = selectedCollege;
-        Object.keys(collegesData[selectedCollege]).forEach(course => {
+        Object.keys(collegesData[selectedCollege]).sort().forEach(course => {
             const option = document.createElement('option');
             option.value = course;
             option.textContent = course;
             courseSelect.appendChild(option);
         });
-        if (selectedCourse) courseSelect.value = selectedCourse;
     }
 
-    // Prevent duplicate listeners on re-render
-    if (!collegeSelect._hasListener) {
-        collegeSelect.addEventListener('change', (e) => {
-            selectedCollege = e.target.value;
-            selectedCourse = '';
-            currentPage = {};
-
-            courseSelect.innerHTML = '<option value="">All Courses</option>';
-
-            if (selectedCollege && collegesData[selectedCollege]) {
-                Object.keys(collegesData[selectedCollege]).forEach(course => {
-                    const option = document.createElement('option');
-                    option.value = course;
-                    option.textContent = course;
-                    courseSelect.appendChild(option);
-                });
-            }
-
-            updateTopSubtitle();
-            renderDocuments();
-        });
-        collegeSelect._hasListener = true;
+    // Restore course if still valid for selected college
+    if (prevCourse && selectedCollege && collegesData[selectedCollege] && collegesData[selectedCollege][prevCourse]) {
+        courseSelect.value = prevCourse;
+        selectedCourse = prevCourse;
+    } else {
+        selectedCourse = '';
     }
 
-    if (!courseSelect._hasListener) {
-        courseSelect.addEventListener('change', (e) => {
-            selectedCourse = e.target.value;
-            currentPage = {};
-            updateTopSubtitle();
-            renderDocuments();
-        });
-        courseSelect._hasListener = true;
-    }
+    // Populate signature filters (cascading from current college+course)
+    populateSignatureFilters();
 
     updateTopSubtitle();
+}
+
+function populateSignatureFilters() {
+    const dateSelect = document.getElementById('signatureDateSelect');
+    const monthSelect = document.getElementById('signatureMonthSelect');
+    if (!dateSelect || !monthSelect) return;
+
+    const currentDate = dateSelect.value;
+    const currentMonth = monthSelect.value;
+
+    dateSelect.innerHTML = '<option value="">All Dates</option>';
+    monthSelect.innerHTML = '<option value="">All Months</option>';
+
+    getSignatureDates().forEach(date => {
+        const opt = document.createElement('option');
+        opt.value = date;
+        opt.textContent = date;
+        dateSelect.appendChild(opt);
+    });
+
+    getSignatureMonths().forEach(month => {
+        const opt = document.createElement('option');
+        opt.value = month;
+        opt.textContent = month;
+        monthSelect.appendChild(opt);
+    });
+
+    // Restore valid selections, clear if no longer valid
+    if (currentDate && Array.from(dateSelect.options).some(o => o.value === currentDate)) {
+        dateSelect.value = currentDate;
+    } else {
+        selectedSignatureDate = '';
+    }
+    if (currentMonth && Array.from(monthSelect.options).some(o => o.value === currentMonth)) {
+        monthSelect.value = currentMonth;
+    } else {
+        selectedSignatureMonth = '';
+    }
 }
 
 function updateTopSubtitle() {
@@ -1014,6 +1424,50 @@ function setupSearch() {
         searchQuery = e.target.value;
         currentPage = {};
         renderDocuments();
+    });
+}
+
+function setupCollegeCourseListeners() {
+    const collegeSelect = document.getElementById('collegeSelect');
+    const courseSelect = document.getElementById('courseSelect');
+    if (!collegeSelect || !courseSelect) return;
+
+    collegeSelect.addEventListener('change', (e) => {
+        selectedCollege = e.target.value;
+        selectedCourse = '';
+        selectedSignatureDate = '';
+        selectedSignatureMonth = '';
+        currentPage = {};
+
+        // Re-populate courses based on selected college
+        courseSelect.innerHTML = '<option value="">All Courses</option>';
+        if (selectedCollege && collegesData[selectedCollege]) {
+            Object.keys(collegesData[selectedCollege]).sort().forEach(course => {
+                const option = document.createElement('option');
+                option.value = course;
+                option.textContent = course;
+                courseSelect.appendChild(option);
+            });
+        }
+
+        // Re-populate signature filters (cascading)
+        populateSignatureFilters();
+        updateTopSubtitle();
+        renderDocuments();
+        updateStats();
+    });
+
+    courseSelect.addEventListener('change', (e) => {
+        selectedCourse = e.target.value;
+        selectedSignatureDate = '';
+        selectedSignatureMonth = '';
+        currentPage = {};
+
+        // Re-populate signature filters (cascading from selected course)
+        populateSignatureFilters();
+        updateTopSubtitle();
+        renderDocuments();
+        updateStats();
     });
 }
 
@@ -1054,9 +1508,8 @@ function setupSidebar() {
         if (window.innerWidth <= 1023) {
             openSidebar();
         } else {
-            sidebarCollapsed = !sidebarCollapsed;
-            sidebar.classList.toggle('collapsed', sidebarCollapsed);
-            document.querySelector('.main-content').classList.toggle('sidebar-collapsed', sidebarCollapsed);
+            // --- NEW: Use unified collapse function ---
+            setSidebarCollapsed(!sidebarCollapsed);
         }
     });
 
@@ -1630,8 +2083,68 @@ document.addEventListener('DOMContentLoaded', () => {
     initLogin(); // Show login first. If already logged in, it calls completeInitialization().
 });
 
+// ============================================
+// EXCEL TEMPLATE DOWNLOAD
+// ============================================
+function setupExcelTemplateDownload() {
+    const btn = document.getElementById('downloadExcelTemplateBtn');
+    if (!btn) return;
+
+    btn.addEventListener('click', () => {
+        try {
+            const headers = ['NO', 'Campus', 'Program', 'Last Name', 'First Name', 'Middle Name', 'FULL NAME'];
+            const data = [
+                headers,
+                [1, 'College of Education', 'Bachelor of Elementary Education', 'DELA CRUZ', 'JUAN', 'M', 'DELA CRUZ, Juan M.'],
+                [2, 'College of Engineering', 'Bachelor of Science in Civil Engineering', 'SANTOS', 'MARIA', 'L', 'SANTOS, Maria L.']
+            ];
+
+            const ws = XLSX.utils.aoa_to_sheet(data);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'Template');
+
+            const wscols = headers.map(() => ({ wch: 22 }));
+            ws['!cols'] = wscols;
+
+            XLSX.writeFile(wb, 'Clearance_Checklist_Template.xlsx');
+            showToast('Excel template downloaded!', 'success');
+        } catch (err) {
+            console.error(err);
+            showToast('Error generating template: ' + err.message, 'error');
+        }
+    });
+}
+
+// ============================================
+// LOGOUT BUTTON
+// ============================================
+function setupLogout() {
+    const sidebar = document.getElementById('sidebar');
+    if (!sidebar) return;
+    const existing = document.getElementById('logoutBtn');
+    if (existing) existing.remove();
+
+    const btn = document.createElement('button');
+    btn.id = 'logoutBtn';
+    btn.className = 'tool-btn';
+    btn.innerHTML = '<i class="fas fa-sign-out-alt"></i> Logout';
+    btn.addEventListener('click', () => {
+        sessionStorage.removeItem(LOGIN_CONFIG.STORAGE_KEY);
+        location.reload();
+    });
+
+    // Insert before footer, not at bottom
+    const footer = sidebar.querySelector('.sidebar-footer');
+    if (footer) {
+        sidebar.insertBefore(btn, footer);
+    } else {
+        sidebar.appendChild(btn);
+    }
+}
+
 async function completeInitialization() {
     initData();
+    updateDuplicatePayments();
 
     if (Object.keys(collegesData).length > 0) {
         allStudents = getAllStudents();
@@ -1652,16 +2165,34 @@ async function completeInitialization() {
         }
     }
 
-    setupSearch();
-    setupFilters();
-    setupSidebar();
-    setupFullscreen();
-    setupExcelUpload();
-    setupSaveAndSync();
-    setupExcelTemplateDownload(); // Sidebar button
-    setupKeyboardShortcuts();
-    setupLogout();
-    positionUploadBoxAtBottom();
+    // Setup all features with error isolation so one missing function never breaks everything
+    const setupTasks = [
+        { fn: setupSearch, name: 'Search' },
+        { fn: setupFilters, name: 'Filters' },
+        { fn: setupSidebar, name: 'Sidebar' },
+        { fn: setupFullscreen, name: 'Fullscreen' },
+        { fn: setupExcelUpload, name: 'Excel Upload' },
+        { fn: setupSaveAndSync, name: 'Save & Sync' },
+        { fn: setupExcelTemplateDownload, name: 'Excel Template' },
+        { fn: setupKeyboardShortcuts, name: 'Keyboard Shortcuts' },
+        { fn: setupLogout, name: 'Logout' },
+        { fn: setupCollegeCourseListeners, name: 'College/Course Listeners' },
+        { fn: setupSidebarCollapse, name: 'Sidebar Collapse' },
+        { fn: setupStudentsCard, name: 'Students Card' },
+        { fn: setupSignatureFilters, name: 'Signature Filter Events' }
+    ];
+
+    setupTasks.forEach(task => {
+        try {
+            if (typeof task.fn === 'function') {
+                task.fn();
+            } else {
+                console.warn('Setup function not found:', task.name);
+            }
+        } catch (err) {
+            console.error('Failed to initialize', task.name + ':', err.message);
+        }
+    });
 
     setTimeout(() => {
         if (Object.keys(collegesData).length === 0) {
