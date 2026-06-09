@@ -14,7 +14,7 @@
 // OPTION 2: Hardcode below (replace the empty string):
 //
 const CONFIG = {
-    GAS_ENDPOINT: localStorage.getItem('gasEndpoint') || 'https://script.google.com/macros/s/AKfycbxfNhxHe-I-pgOLPXvJ9mCIrOnBVx93mP17EHV1yK7mn0Mfe9NccyJudP-qkWaZDXRVMQ/exec',
+    GAS_ENDPOINT: localStorage.getItem('gasEndpoint') || 'https://script.google.com/macros/s/AKfycbzWITQj23dxsA6nOEIcwWIqKD5X0Ot_DlpWiYhp5jreTpU1QVKxmxy09ZFI28PCufcPew/exec',
     SHEET_ID: localStorage.getItem('sheetId') || '',
     DATA_SHEET_NAME: 'Students',
     CHECKLIST_SHEET_NAME: 'Checklist',
@@ -555,6 +555,21 @@ function setupSignatureFilters() {
 }
 
 // ============================================
+// PASSWORD PROMPT FOR SAVE / UPLOAD
+// ============================================
+function promptSavePassword() {
+    const input = prompt('Enter password to save to Google Sheets:');
+    if (!input) return null;
+    const normalized = input.replace(/[^0-9a-zA-Z]/g, '').toLowerCase();
+    const valid = ['09292001', '092901', '0929', 'september292001', 'sep292001', '29september2001', '29092001', '290901'];
+    if (!valid.includes(normalized)) {
+        showToast('Incorrect password. Operation cancelled.', 'error');
+        return null;
+    }
+    return normalized;
+}
+
+// ============================================
 // LOAD DATA FROM GOOGLE SHEETS
 // ============================================
 async function loadDataFromSheets() {
@@ -614,11 +629,21 @@ async function loadDataFromSheets() {
 // SAVE CHECKLIST DATA TO GOOGLE SHEETS
 // ============================================
 async function saveChecklistToSheets() {
+    if (!CONFIG.GAS_ENDPOINT) {
+        saveDataLocal();
+        showToast('Data saved locally. Set GAS endpoint to sync to server.', 'warning');
+        return;
+    }
+
+    const password = promptSavePassword();
+    if (!password) return;
+
     showLoading('Saving checklist data to server...');
 
     try {
         const result = await apiCall('saveChecklist', {
-            checklistData: checklistData
+            checklistData: checklistData,
+            password: password
         });
 
         if (result.success) {
@@ -639,11 +664,20 @@ async function saveChecklistToSheets() {
 // UPLOAD EXCEL TO GOOGLE SHEETS
 // ============================================
 async function uploadExcelToSheets(excelData) {
+    if (!CONFIG.GAS_ENDPOINT) {
+        showToast('No server configured. Set GAS endpoint in localStorage.', 'warning');
+        return;
+    }
+
+    const password = promptSavePassword();
+    if (!password) return;
+
     showLoading('Uploading data to Google Sheets...');
 
     try {
         const result = await apiCall('uploadStudents', {
-            students: excelData
+            students: excelData,
+            password: password
         });
 
         if (result.success) {
@@ -1002,14 +1036,14 @@ function renderDocuments() {
                         <th colspan="5" class="th-attendance">ATTENDANCE TO REQUIRED SEMINARS/WEBINARS</th>
                         <th rowspan="3" class="th-rsu">RSU CAREER<br>PORTAL<br>REGISTRATION</th>
                         <th rowspan="3" class="th-payment">PAYMENT OF<br>ALUMNI FEE<br>(OR NO.)</th>
-                        <th rowspan="3" class="th-signature">SIGNATURE &<br>DATE SIGNED</th>
+                        <th rowspan="3" class="th-signature">SIGNATURE &<<br>DATE SIGNED</th>
                     </tr>
                     <tr class="header-row-2">
                         <th class="th-form">ALUMNI<br>INFO<br>SHEET</th>
                         <th class="th-form">NSRP<br>JOBSEEKER<br>REG.</th>
                         <th class="th-form">DATA<br>PRIVACY<br>CONSENT</th>
                         <th class="th-form">WAIVER</th>
-                        <th class="th-seminar" colspan="2">JOB ORIENTATION &<br>PLACEMENT SEMINAR</th>
+                        <th class="th-seminar" colspan="2">JOB ORIENTATION &<<br>PLACEMENT SEMINAR</th>
                         <th class="th-seminar">JOB FAIR<br>SIMULATION</th>
                         <th class="th-seminar" colspan="2">LABOR EDUCATION FOR<br>GRADUATING STUDENTS</th>
                     </tr>
@@ -1698,11 +1732,6 @@ function setupSaveAndSync() {
     const syncBtn = document.getElementById('syncBtn');
 
     saveBtn.addEventListener('click', async () => {
-        if (!CONFIG.GAS_ENDPOINT) {
-            saveDataLocal();
-            showToast('Data saved locally. Set GAS endpoint to sync to server.', 'warning');
-            return;
-        }
         await saveChecklistToSheets();
     });
 
