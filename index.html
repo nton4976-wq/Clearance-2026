@@ -11,7 +11,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <base target="_blank">
-<base target="_blank">
 </head>
 <body>
     <div class="app-container">
@@ -37,144 +36,196 @@
             </div>
 
             <nav class="sidebar-nav">
-                <div class="nav-section">
-                    <h3>Dashboard</h3>
-                    <div class="stat-cards">
-                        <div class="stat-card">
-                            <div class="stat-icon"><i class="fas fa-university"></i></div>
-                            <div class="stat-info">
-                                <span class="stat-number" id="totalColleges">0</span>
-                                <span class="stat-label">Colleges</span>
-                            </div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-icon"><i class="fas fa-book"></i></div>
-                            <div class="stat-info">
-                                <span class="stat-number" id="totalCourses">0</span>
-                                <span class="stat-label">Courses</span>
-                            </div>
-                        </div>
-                        <div class="stat-card" id="studentsStatCard" title="Click to toggle filtered/total count">
-                            <div class="stat-icon"><i class="fas fa-users"></i></div>
-                            <div class="stat-info">
-                                <span class="stat-number" id="totalStudents">0</span>
-                                <span class="stat-label">Students</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="nav-section">
-                    <h3>Select College</h3>
-                    <div class="select-box">
-                        <i class="fas fa-university"></i>
-                        <select id="collegeSelect">
-                            <option value="">All Colleges</option>
-                        </select>
-                    </div>
-                </div>
-
-                <div class="nav-section">
-                    <h3>Select Course</h3>
-                    <div class="select-box">
-                        <i class="fas fa-book"></i>
-                        <select id="courseSelect">
-                            <option value="">All Courses</option>
-                        </select>
-                    </div>
-                </div>
-
-                <div class="nav-section">
-                    <h3>Signature Date Filter</h3>
-                    <div class="select-box">
-                        <i class="fas fa-calendar-day"></i>
-                        <select id="signatureDateSelect">
-                            <option value="">All Dates</option>
-                        </select>
-                    </div>
-                    <div class="select-box">
-                        <i class="fas fa-calendar-alt"></i>
-                        <select id="signatureMonthSelect">
-                            <option value="">All Months</option>
-                        </select>
-                    </div>
-                </div>
-
-                <div class="nav-section">
-                    <h3>Quick Filters</h3>
-                    <button class="filter-btn active" data-filter="all">
-                        <i class="fas fa-list"></i> All Students
-                    </button>
-                    <button class="filter-btn" data-filter="complete">
-                        <i class="fas fa-check-double"></i> Fully Cleared
-                    </button>
-                    <button class="filter-btn" data-filter="incomplete">
-                        <i class="fas fa-exclamation-triangle"></i> Has Pending
-                    </button>
-                </div>
-
-                
-
-                <div class="nav-section">
-                    <h3>Search & Tools</h3>
+                <!-- Search - Always Visible -->
+                <div class="nav-section search-section">
                     <div class="search-box">
                         <i class="fas fa-search"></i>
                         <input type="text" id="searchInput" placeholder="Search name...">
                     </div>
                 </div>
 
-                <div class="nav-section">
-                    <h3>Actions</h3>
-                    <button class="tool-btn" id="saveBtn">
-                        <i class="fas fa-save"></i> Save to Server
+                <!-- Dashboard -->
+                <div class="nav-section accordion-section">
+                    <button class="accordion-toggle" data-target="dashboardContent">
+                        <i class="fas fa-chart-pie"></i>
+                        <span>Dashboard</span>
+                        <i class="fas fa-chevron-down accordion-icon"></i>
                     </button>
-                    <button class="tool-btn" id="syncBtn">
-                        <i class="fas fa-sync-alt"></i> Sync from Server
-                    </button>
-                    <button class="tool-btn" id="fullscreenBtn">
-                        <i class="fas fa-expand"></i> Fullscreen
-                    </button>
+                    <div class="accordion-content" id="dashboardContent">
+                        <div class="stat-cards">
+                            <div class="stat-card">
+                                <div class="stat-icon"><i class="fas fa-university"></i></div>
+                                <div class="stat-info">
+                                    <span class="stat-number" id="totalColleges">0</span>
+                                    <span class="stat-label">Colleges</span>
+                                </div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-icon"><i class="fas fa-book"></i></div>
+                                <div class="stat-info">
+                                    <span class="stat-number" id="totalCourses">0</span>
+                                    <span class="stat-label">Courses</span>
+                                </div>
+                            </div>
+                            <div class="stat-card" id="studentsStatCard" title="Click to toggle filtered/total count">
+                                <div class="stat-icon"><i class="fas fa-users"></i></div>
+                                <div class="stat-info">
+                                    <span class="stat-number" id="totalStudents">0</span>
+                                    <span class="stat-label">Students</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
-                <div class="nav-section">
-                    <h3>Upload Data</h3>
-                    <div class="upload-box" id="uploadBox">
-                        <i class="fas fa-cloud-upload-alt"></i>
-                        <span class="upload-text">Drop Excel file here or click to browse</span>
-                        <span class="upload-hint">.xlsx format with columns: NO, Campus, Program, Last Name, First Name, Middle Name, FULL NAME</span>
-                        <input type="file" id="excelUpload" accept=".xlsx,.xls" hidden>
+                <!-- Filters -->
+                <div class="nav-section accordion-section">
+                    <button class="accordion-toggle" data-target="filtersContent">
+                        <i class="fas fa-filter"></i>
+                        <span>Filters</span>
+                        <i class="fas fa-chevron-down accordion-icon"></i>
+                    </button>
+                    <div class="accordion-content" id="filtersContent">
+                        <div class="filter-group">
+                            <label class="filter-label">Select College</label>
+                            <div class="select-box">
+                                <i class="fas fa-university"></i>
+                                <select id="collegeSelect">
+                                    <option value="">All Colleges</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="filter-group">
+                            <label class="filter-label">Select Course</label>
+                            <div class="select-box">
+                                <i class="fas fa-book"></i>
+                                <select id="courseSelect">
+                                    <option value="">All Courses</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="filter-group">
+                            <label class="filter-label">Signature Date</label>
+                            <div class="select-box">
+                                <i class="fas fa-calendar-day"></i>
+                                <select id="signatureDateSelect">
+                                    <option value="">All Dates</option>
+                                </select>
+                            </div>
+                            <div class="select-box">
+                                <i class="fas fa-calendar-alt"></i>
+                                <select id="signatureMonthSelect">
+                                    <option value="">All Months</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="filter-group">
+                            <label class="filter-label">Quick Filters</label>
+                            <button class="filter-btn active" data-filter="all">
+                                <i class="fas fa-list"></i> All Students
+                            </button>
+                            <button class="filter-btn" data-filter="complete">
+                                <i class="fas fa-check-double"></i> Fully Cleared
+                            </button>
+                            <button class="filter-btn" data-filter="incomplete">
+                                <i class="fas fa-exclamation-triangle"></i> Pending
+                            </button>
+                        </div>
+
+                        <div class="filter-group">
+                            <label class="filter-label">Graduation Status</label>
+                            <button class="filter-btn grad-filter-btn active" data-grad-filter="all">
+                                <i class="fas fa-list"></i> Show All
+                            </button>
+                            <button class="filter-btn grad-filter-btn" data-grad-filter="graduated">
+                                <i class="fas fa-user-graduate"></i> Graduated Only
+                            </button>
+                            <button class="filter-btn grad-filter-btn" data-grad-filter="notGraduated">
+                                <i class="fas fa-user-times"></i> Not Graduated
+                            </button>
+                        </div>
                     </div>
-                    <div class="upload-actions" id="uploadActions" style="display:none;">
-                        <span class="upload-filename" id="uploadFilename"></span>
-                        <button class="tool-btn upload-btn" id="uploadToSheetBtn">
-                            <i class="fas fa-upload"></i> Upload to Google Sheet
+                </div>
+
+                <!-- Import -->
+                <div class="nav-section accordion-section">
+                    <button class="accordion-toggle" data-target="importContent">
+                        <i class="fas fa-file-import"></i>
+                        <span>Import</span>
+                        <i class="fas fa-chevron-down accordion-icon"></i>
+                    </button>
+                    <div class="accordion-content" id="importContent">
+                        <div class="upload-box" id="uploadBox">
+                            <i class="fas fa-cloud-upload-alt"></i>
+                            <span class="upload-text">Drop Excel file here or click to browse</span>
+                            <span class="upload-hint">.xlsx format with columns: NO, Campus, Program, Last Name, First Name, Middle Name, FULL NAME</span>
+                            <input type="file" id="excelUpload" accept=".xlsx,.xls" hidden>
+                        </div>
+                        <div class="upload-actions" id="uploadActions" style="display:none;">
+                            <span class="upload-filename" id="uploadFilename"></span>
+                            <button class="tool-btn upload-btn" id="uploadToSheetBtn">
+                                <i class="fas fa-upload"></i> Upload to Google Sheet
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Export -->
+                <div class="nav-section accordion-section">
+                    <button class="accordion-toggle" data-target="exportContent">
+                        <i class="fas fa-file-export"></i>
+                        <span>Export</span>
+                        <i class="fas fa-chevron-down accordion-icon"></i>
+                    </button>
+                    <div class="accordion-content" id="exportContent">
+                        <button id="downloadExcelTemplateBtn" class="tool-btn">
+                            <i class="fas fa-file-excel"></i> Download Excel Template
+                        </button>
+                        <button class="export-btn secondary" id="printBtn">
+                            <i class="fas fa-print"></i>
+                            <div class="export-info">
+                                <span>Print / PDF</span>
+                                <small>Landscape 8.5"×13"</small>
+                            </div>
+                        </button>
+                        <button class="export-btn secondary" id="generateReportBtn">
+                            <i class="fas fa-file-alt"></i>
+                            <div class="export-info">
+                                <span>Generate Report</span>
+                                <small>Coming soon</small>
+                            </div>
                         </button>
                     </div>
                 </div>
 
-                <div class="nav-section">
-                    <h3>Export</h3>
-                    <button id="downloadExcelTemplateBtn" class="tool-btn">
-                        <i class="fas fa-file-excel"></i> Download Excel Template
+                <!-- Actions -->
+                <div class="nav-section accordion-section">
+                    <button class="accordion-toggle" data-target="actionsContent">
+                        <i class="fas fa-tools"></i>
+                        <span>Actions</span>
+                        <i class="fas fa-chevron-down accordion-icon"></i>
                     </button>
-                    <button class="export-btn secondary" id="printBtn">
-                        <i class="fas fa-print"></i>
-                        <div class="export-info">
-                            <span>Print / PDF</span>
-                            <small>Landscape 8.5"×13"</small>
-                        </div>
-                    </button>
+                    <div class="accordion-content" id="actionsContent">
+                        <button class="tool-btn" id="saveBtn">
+                            <i class="fas fa-save"></i> Save to Server
+                        </button>
+                        <button class="tool-btn" id="syncBtn">
+                            <i class="fas fa-sync-alt"></i> Sync from Server
+                        </button>
+                        <button class="tool-btn" id="fullscreenBtn">
+                            <i class="fas fa-expand"></i> Fullscreen
+                        </button>
+                    </div>
                 </div>
             </nav>
 
-
             <div class="sidebar-footer">
                 <p>© 2026 RSU</p>
-                <p class="version">v5.0 GS-Connected</p>
+                <p class="version">v5.2 GS-Connected</p>
             </div>
-
-
-
         </aside>
 
         <!-- Main Content -->
