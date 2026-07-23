@@ -1,12 +1,12 @@
 /* ============================================
-   CLEARANCE CHECKLIST SYSTEM - SCRIPTS v5.2
+   CLEARANCE CHECKLIST SYSTEM - SCRIPTS v5.4
    Google Sheets Connected, CORS Fixed, Excel Upload,
-   Graduation Status Toggle, Print Fix
+   Graduation Status Toggle, Accordion Sidebar, Print All Pages
    ============================================ */
 
 // ============================================
-// CONFIGURATION - SET YOUR GOOGLE APPS SCRIPT URL
-// ============================================ 
+// CONFIGURATION
+// ============================================
 const CONFIG = {
     GAS_ENDPOINT: localStorage.getItem('gasEndpoint') || 'https://script.google.com/macros/s/AKfycbzWITQj23dxsA6nOEIcwWIqKD5X0Ot_DlpWiYhp5jreTpU1QVKxmxy09ZFI28PCufcPew/exec',
     SHEET_ID: localStorage.getItem('sheetId') || '',
@@ -137,19 +137,28 @@ function setupLogout() {
     if (!sidebar) return;
     const existing = document.getElementById('logoutBtn');
     if (existing) existing.remove();
-    
+
     const btn = document.createElement('button');
     btn.id = 'logoutBtn';
     btn.className = 'tool-btn';
-    btn.style.marginTop = 'auto';
-    btn.style.borderTop = '1px solid rgba(148,163,184,0.2)';
-    btn.style.paddingTop = '14px';
     btn.innerHTML = '<i class="fas fa-sign-out-alt"></i> Logout';
     btn.addEventListener('click', () => {
         sessionStorage.removeItem(LOGIN_CONFIG.STORAGE_KEY);
         location.reload();
     });
-    sidebar.appendChild(btn);
+
+    const actionsContent = document.getElementById('actionsContent');
+    if (actionsContent) {
+        actionsContent.appendChild(btn);
+        return;
+    }
+
+    const footer = sidebar.querySelector('.sidebar-footer');
+    if (footer) {
+        sidebar.insertBefore(btn, footer);
+    } else {
+        sidebar.appendChild(btn);
+    }
 }
 
 // ============================================
@@ -197,6 +206,7 @@ const columns = [
 // ============================================
 let checklistData = {};
 let currentFilter = 'all';
+let graduationStatusFilter = 'all';
 let searchQuery = '';
 let selectedCollege = '';
 let selectedCourse = '';
@@ -210,6 +220,10 @@ let duplicatePayments = new Set();
 
 const ROWS_PER_PAGE = 30;
 let currentPage = {};
+
+// --- PRINT MODE STATE ---
+let isPrintMode = false;
+let savedPrintState = null;
 
 // ============================================
 // API HELPERS
@@ -250,7 +264,7 @@ async function apiCall(action, payload = {}) {
 }
 
 // ============================================
-// NEW HELPER FUNCTIONS
+// HELPER FUNCTIONS
 // ============================================
 
 function getSignatureDates() {
@@ -435,7 +449,7 @@ function setupSignatureFilters() {
 }
 
 // ============================================
-// PASSWORD PROMPT FOR SAVE / UPLOAD
+// PASSWORD PROMPT
 // ============================================
 function promptSavePassword() {
     const input = prompt('Enter password to save to Google Sheets:');
@@ -450,7 +464,7 @@ function promptSavePassword() {
 }
 
 // ============================================
-// LOAD DATA FROM GOOGLE SHEETS
+// LOAD / SAVE DATA
 // ============================================
 async function loadDataFromSheets() {
     showLoading('Loading data from Google Sheets...');
@@ -503,9 +517,6 @@ async function loadDataFromSheets() {
     }
 }
 
-// ============================================
-// SAVE CHECKLIST DATA TO GOOGLE SHEETS
-// ============================================
 async function saveChecklistToSheets() {
     if (!CONFIG.GAS_ENDPOINT) {
         saveDataLocal();
@@ -538,9 +549,6 @@ async function saveChecklistToSheets() {
     }
 }
 
-// ============================================
-// UPLOAD EXCEL TO GOOGLE SHEETS
-// ============================================
 async function uploadExcelToSheets(excelData) {
     if (!CONFIG.GAS_ENDPOINT) {
         showToast('No server configured. Set GAS endpoint in localStorage.', 'warning');
@@ -575,9 +583,6 @@ async function uploadExcelToSheets(excelData) {
     }
 }
 
-// ============================================
-// LOCAL STORAGE HELPERS
-// ============================================
 function saveDataLocal() {
     localStorage.setItem('clearanceChecklistData', JSON.stringify(checklistData));
     localStorage.setItem('clearanceCollegesData', JSON.stringify(collegesData));
@@ -897,7 +902,13 @@ function getVisibleStudents() {
                 const studentData = checklistData[s.id] || {};
                 const checkedCount = Object.values(studentData).filter(v => v === true).length;
                 const totalCols = columns.filter(c => c.type === 'checkbox').length;
+                const isStudentGraduated = isGraduated(s.id);
 
+                // Graduation status filter
+                if (graduationStatusFilter === 'graduated' && !isStudentGraduated) return false;
+                if (graduationStatusFilter === 'notGraduated' && isStudentGraduated) return false;
+
+                // Signature date filter
                 let matchesSignature = true;
                 if (selectedSignatureDate) {
                     matchesSignature = studentData.signature === selectedSignatureDate;
@@ -910,9 +921,12 @@ function getVisibleStudents() {
                 }
                 if (!matchesSignature) return false;
 
+                // Quick filters - hide not graduated
                 if (currentFilter === 'complete') {
+                    if (!isStudentGraduated) return false;
                     return matchesSearch && checkedCount === totalCols;
                 } else if (currentFilter === 'incomplete') {
+                    if (!isStudentGraduated) return false;
                     return matchesSearch && checkedCount < totalCols;
                 }
                 return matchesSearch;
@@ -968,7 +982,13 @@ function renderDocuments() {
                 const studentData = checklistData[s.id] || {};
                 const checkedCount = Object.values(studentData).filter(v => v === true).length;
                 const totalCols = columns.filter(c => c.type === 'checkbox').length;
+                const isStudentGraduated = isGraduated(s.id);
 
+                // Graduation status filter
+                if (graduationStatusFilter === 'graduated' && !isStudentGraduated) return false;
+                if (graduationStatusFilter === 'notGraduated' && isStudentGraduated) return false;
+
+                // Signature date filter
                 let matchesSignature = true;
                 if (selectedSignatureDate) {
                     matchesSignature = studentData.signature === selectedSignatureDate;
@@ -981,9 +1001,12 @@ function renderDocuments() {
                 }
                 if (!matchesSignature) return false;
 
+                // Quick filters - hide not graduated
                 if (currentFilter === 'complete') {
+                    if (!isStudentGraduated) return false;
                     return matchesSearch && checkedCount === totalCols;
                 } else if (currentFilter === 'incomplete') {
+                    if (!isStudentGraduated) return false;
                     return matchesSearch && checkedCount < totalCols;
                 }
                 return matchesSearch;
@@ -1058,10 +1081,20 @@ function renderDocuments() {
             const tableKey = `${college}|||${course}`;
             if (!currentPage[tableKey]) currentPage[tableKey] = 1;
 
-            const totalPages = Math.ceil(filteredStudents.length / ROWS_PER_PAGE);
-            const startIdx = (currentPage[tableKey] - 1) * ROWS_PER_PAGE;
-            const endIdx = Math.min(startIdx + ROWS_PER_PAGE, filteredStudents.length);
-            const pageStudents = filteredStudents.slice(startIdx, endIdx);
+            // --- PRINT MODE: show all rows, no pagination ---
+            let pageStudents;
+            let totalPages = 1;
+            let startIdx = 0;
+            let endIdx = filteredStudents.length;
+
+            if (isPrintMode) {
+                pageStudents = filteredStudents;
+            } else {
+                totalPages = Math.ceil(filteredStudents.length / ROWS_PER_PAGE);
+                startIdx = (currentPage[tableKey] - 1) * ROWS_PER_PAGE;
+                endIdx = Math.min(startIdx + ROWS_PER_PAGE, filteredStudents.length);
+                pageStudents = filteredStudents.slice(startIdx, endIdx);
+            }
 
             // Calculate sequential numbering for graduated students only
             let gradCounter = 0;
@@ -1195,7 +1228,8 @@ function renderDocuments() {
             tableWrapper.appendChild(tableContainer);
             docPage.appendChild(tableWrapper);
 
-            if (totalPages > 1) {
+            // --- PAGINATION (hidden in print mode) ---
+            if (!isPrintMode && totalPages > 1) {
                 const pagination = document.createElement('div');
                 pagination.className = 'pagination';
 
@@ -1446,13 +1480,47 @@ function setupCollegeCourseListeners() {
 }
 
 function setupFilters() {
-    document.querySelectorAll('.filter-btn').forEach(btn => {
+    document.querySelectorAll('.filter-btn[data-filter]').forEach(btn => {
         btn.addEventListener('click', () => {
-            document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.filter-btn[data-filter]').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             currentFilter = btn.dataset.filter;
             currentPage = {};
             renderDocuments();
+        });
+    });
+}
+
+function setupGraduationStatusFilter() {
+    document.querySelectorAll('.grad-filter-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.grad-filter-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            graduationStatusFilter = btn.dataset.gradFilter;
+            currentPage = {};
+            renderDocuments();
+            updateStats();
+        });
+    });
+}
+
+// ============================================
+// ACCORDION SIDEBAR
+// ============================================
+function setupAccordion() {
+    document.querySelectorAll('.accordion-toggle').forEach(toggle => {
+        toggle.addEventListener('click', () => {
+            const targetId = toggle.dataset.target;
+            const content = document.getElementById(targetId);
+            const isOpen = content.classList.contains('open');
+            
+            if (isOpen) {
+                content.classList.remove('open');
+                toggle.classList.remove('active');
+            } else {
+                content.classList.add('open');
+                toggle.classList.add('active');
+            }
         });
     });
 }
@@ -1726,6 +1794,40 @@ function showToast(message, type = 'success') {
 }
 
 // ============================================
+// PRINT MODE - PRINT ALL FILTERED PAGES
+// ============================================
+
+function enterPrintMode() {
+    isPrintMode = true;
+    document.body.classList.add('print-mode-active');
+    renderDocuments();
+}
+
+function exitPrintMode() {
+    isPrintMode = false;
+    document.body.classList.remove('print-mode-active');
+    renderDocuments();
+}
+
+function handlePrint() {
+    // Save current scroll position
+    const scrollPos = window.scrollY;
+    
+    enterPrintMode();
+    
+    // Small delay to let DOM render, then print
+    setTimeout(() => {
+        window.print();
+        
+        // Restore after print dialog closes
+        setTimeout(() => {
+            exitPrintMode();
+            window.scrollTo(0, scrollPos);
+        }, 100);
+    }, 150);
+}
+
+// ============================================
 // WORD DOCUMENT GENERATION
 // ============================================
 function setupWordExport() {
@@ -1735,7 +1837,7 @@ function setupWordExport() {
     }
     const printBtn = document.getElementById('printBtn');
     if (printBtn) {
-        printBtn.addEventListener('click', () => window.print());
+        printBtn.addEventListener('click', handlePrint);
     }
 }
 
@@ -2030,7 +2132,7 @@ function setupKeyboardShortcuts() {
         if (e.ctrlKey || e.metaKey) {
             if (e.key === 'p') {
                 e.preventDefault();
-                window.print();
+                handlePrint();
             }
             if (e.key === 's') {
                 e.preventDefault();
@@ -2047,13 +2149,6 @@ function setupKeyboardShortcuts() {
         }
     });
 }
-
-// ============================================
-// INITIALIZATION
-// ============================================
-document.addEventListener('DOMContentLoaded', () => {
-    initLogin();
-});
 
 // ============================================
 // EXCEL TEMPLATE DOWNLOAD
@@ -2088,30 +2183,23 @@ function setupExcelTemplateDownload() {
 }
 
 // ============================================
-// LOGOUT BUTTON
+// GENERATE REPORT (UI ONLY)
 // ============================================
-function setupLogout() {
-    const sidebar = document.getElementById('sidebar');
-    if (!sidebar) return;
-    const existing = document.getElementById('logoutBtn');
-    if (existing) existing.remove();
-
-    const btn = document.createElement('button');
-    btn.id = 'logoutBtn';
-    btn.className = 'tool-btn';
-    btn.innerHTML = '<i class="fas fa-sign-out-alt"></i> Logout';
-    btn.addEventListener('click', () => {
-        sessionStorage.removeItem(LOGIN_CONFIG.STORAGE_KEY);
-        location.reload();
-    });
-
-    const footer = sidebar.querySelector('.sidebar-footer');
-    if (footer) {
-        sidebar.insertBefore(btn, footer);
-    } else {
-        sidebar.appendChild(btn);
+function setupGenerateReport() {
+    const btn = document.getElementById('generateReportBtn');
+    if (btn) {
+        btn.addEventListener('click', () => {
+            showToast('Generate Report feature coming soon!', 'warning');
+        });
     }
 }
+
+// ============================================
+// INITIALIZATION
+// ============================================
+document.addEventListener('DOMContentLoaded', () => {
+    initLogin();
+});
 
 async function completeInitialization() {
     initData();
@@ -2139,6 +2227,8 @@ async function completeInitialization() {
     const setupTasks = [
         { fn: setupSearch, name: 'Search' },
         { fn: setupFilters, name: 'Filters' },
+        { fn: setupGraduationStatusFilter, name: 'Graduation Status Filter' },
+        { fn: setupAccordion, name: 'Accordion' },
         { fn: setupSidebar, name: 'Sidebar' },
         { fn: setupFullscreen, name: 'Fullscreen' },
         { fn: setupExcelUpload, name: 'Excel Upload' },
@@ -2151,7 +2241,8 @@ async function completeInitialization() {
         { fn: setupStudentsCard, name: 'Students Card' },
         { fn: setupSignatureFilters, name: 'Signature Filter Events' },
         { fn: setupWordExport, name: 'Word Export & Print' },
-        { fn: setupGraduationPopupGlobalListeners, name: 'Graduation Popup' }
+        { fn: setupGraduationPopupGlobalListeners, name: 'Graduation Popup' },
+        { fn: setupGenerateReport, name: 'Generate Report' }
     ];
 
     setupTasks.forEach(task => {
