@@ -1003,9 +1003,8 @@ body {
     text-align: left;
     padding-left: 8px;
     font-weight: 500;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    white-space: normal;
+    overflow-wrap: anywhere;
 }
 
 /* Checkbox cells */
@@ -1663,6 +1662,8 @@ body {
 /* Clickable name indicator */
 .student-name {
     cursor: pointer;
+    -webkit-user-select: text;
+    user-select: text;
     transition: color 0.15s ease;
 }
 .student-name:hover {
