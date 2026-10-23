@@ -1123,6 +1123,7 @@ function renderDocuments() {
                     nameTd.innerHTML = `<span class="row-num not-graduated-num">${displayNum}</span><span class="student-name not-graduated-name">${formatNameWithBoldSurname(student.name)}</span>`;
                     nameTd.querySelector('.student-name').addEventListener('click', (e) => {
                         e.stopPropagation();
+                        if (window.getSelection()?.toString()) return;
                         showGraduationPopup(student.id, e.currentTarget);
                     });
                     tr.appendChild(nameTd);
@@ -1144,6 +1145,7 @@ function renderDocuments() {
                     nameTd.innerHTML = `<span class="row-num">${displayNum}</span><span class="student-name">${formatNameWithBoldSurname(student.name)}</span>`;
                     nameTd.querySelector('.student-name').addEventListener('click', (e) => {
                         e.stopPropagation();
+                        if (window.getSelection()?.toString()) return;
                         showGraduationPopup(student.id, e.currentTarget);
                     });
                     tr.appendChild(nameTd);
@@ -2151,6 +2153,60 @@ function setupKeyboardShortcuts() {
 }
 
 // ============================================
+// COPY NAMES FOR EXCEL
+// ============================================
+async function copyNamesForExcel() {
+    const students = getVisibleStudents();
+    if (students.length === 0) {
+        showToast('No names match the current filters.', 'warning');
+        return;
+    }
+
+    // Tabs and line breaks inside a name must not create extra Excel cells.
+    const text = students.map(student => student.name.replace(/[\t\r\n]+/g, ' ').trim()).join('\r\n');
+
+    try {
+        await writeClipboardText(text);
+        showToast(`${students.length} name${students.length === 1 ? '' : 's'} copied. Paste into Excel with Ctrl+V.`, 'success');
+    } catch (error) {
+        showToast('Could not copy names. Select the names and press Ctrl+C to copy.', 'error');
+    }
+}
+
+async function writeClipboardText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        try {
+            await navigator.clipboard.writeText(text);
+            return;
+        } catch (error) {
+            // Fall back to selection-based copying if clipboard access is blocked.
+        }
+    }
+
+    const previousFocus = document.activeElement;
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.readOnly = true;
+    textarea.style.cssText = 'position:fixed;top:0;left:0;opacity:0;pointer-events:none;';
+    document.body.appendChild(textarea);
+
+    try {
+        textarea.focus();
+        textarea.select();
+        textarea.setSelectionRange(0, textarea.value.length);
+        if (!document.execCommand('copy')) throw new Error('Clipboard copy failed');
+    } finally {
+        textarea.remove();
+        if (previousFocus && previousFocus.focus) previousFocus.focus({ preventScroll: true });
+    }
+}
+
+function setupCopyNames() {
+    const btn = document.getElementById('copyNamesBtn');
+    if (btn) btn.addEventListener('click', copyNamesForExcel);
+}
+
+// ============================================
 // EXCEL TEMPLATE DOWNLOAD
 // ============================================
 function setupExcelTemplateDownload() {
@@ -2233,6 +2289,7 @@ async function completeInitialization() {
         { fn: setupFullscreen, name: 'Fullscreen' },
         { fn: setupExcelUpload, name: 'Excel Upload' },
         { fn: setupSaveAndSync, name: 'Save & Sync' },
+        { fn: setupCopyNames, name: 'Copy Names for Excel' },
         { fn: setupExcelTemplateDownload, name: 'Excel Template' },
         { fn: setupKeyboardShortcuts, name: 'Keyboard Shortcuts' },
         { fn: setupLogout, name: 'Logout' },
